@@ -19,7 +19,7 @@ services:
     container_name: codex-agent
     environment:
       - DISPLAY=:0
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - PYTHONPATH=/
     ports:
       - "8000:8000"
@@ -39,6 +39,7 @@ services:
       - SYS_ADMIN
     security_opt:
       - seccomp=unconfined
+      - apparmor=unconfined
 
 volumes:
   x11socket:

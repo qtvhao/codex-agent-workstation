@@ -61,9 +61,17 @@ rm -f "$PROMPT_FILE"
 rm -f "$RUNNER"
 exec codex resume --dangerously-bypass-approvals-and-sandbox --model gpt-5.2 "$AGENT_ID" "\$CONTENT"
 RUNNER_EOF
-chmod +x "$RUNNER"
+chmod 700 "$RUNNER"
+sudo chown agent:agent "$RUNNER" 2>/dev/null || true
 
-# Enter mount namespace: hide /workspaces and /app, expose only this agent's workspace
+# Heartbeat loop: touch file every 30s while the agent is running
+echo "[DEBUG] Agent $AGENT_ID heartbeat loop starting..." >&2
+touch "$HEARTBEAT_FILE"
+(while true; do touch "$HEARTBEAT_FILE"; sleep 30; done) &
+HEARTBEAT_PID=$!
+
+# Enter mount namespace: hide /workspaces and /app, expose only this agent's workspace.
+# Run in the foreground so Codex keeps its TTY (Codex errors if stdin isn't a terminal).
 echo "[DEBUG] Creating mount namespace for agent $AGENT_ID..." >&2
 sudo -E unshare --mount --propagation unchanged -- bash -c '
   mount -t tmpfs tmpfs /workspaces
@@ -80,17 +88,10 @@ sudo -E unshare --mount --propagation unchanged -- bash -c '
   mount --bind "'"$STASH"'" "'"$WORKSPACE"'"
   umount -l "'"$STASH"'"
   rmdir "'"$STASH"'"
-  exec sudo -E -u agent bash "'"$RUNNER"'"
-' &
-AGENT_PID=$!
-echo "[DEBUG] Agent $AGENT_ID spawned with PID $AGENT_PID" >&2
+  exec sudo -E -H -u agent bash "'"$RUNNER"'"
+'
+RC=$?
 
-# Heartbeat loop: touch file every 30s while agent process is alive
-echo "[DEBUG] Agent $AGENT_ID heartbeat loop starting..." >&2
-while kill -0 "$AGENT_PID" 2>/dev/null; do
-  touch "$HEARTBEAT_FILE"
-  sleep 30
-done
-echo "[DEBUG] Agent $AGENT_ID process $AGENT_PID died, exit code: $?" >&2
+kill "$HEARTBEAT_PID" 2>/dev/null || true
 rm -f "$HEARTBEAT_FILE"
-wait "$AGENT_PID"
+exit "$RC"

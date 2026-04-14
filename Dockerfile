@@ -4,6 +4,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     file \
+    ripgrep \
     xauth \
     xvfb \
     xterm \
@@ -27,6 +28,9 @@ RUN npm i -g @openai/codex
 
 # Set up X11 resources
 ENV DISPLAY=:0
+
+# Used by spawn.sh mount-namespace isolation.
+RUN mkdir -p /app
 
 # Create agent user for running spawned agents (idempotent for rebuilds)
 RUN id -u agent >/dev/null 2>&1 || useradd -m -s /bin/bash agent \
