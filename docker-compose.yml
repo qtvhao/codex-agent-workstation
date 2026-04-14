@@ -20,10 +20,12 @@ services:
     environment:
       - DISPLAY=:0
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - PYTHONPATH=/
     ports:
       - "8000:8000"
     volumes:
       - ./workspace:/workspace
+      - ./workspace:/workspaces
       - x11socket:/tmp/.X11-unix
     working_dir: /workspace
     stdin_open: true

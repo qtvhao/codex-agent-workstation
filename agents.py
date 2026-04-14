@@ -10,9 +10,10 @@ import signal
 import subprocess
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import FastAPI, APIRouter, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -1174,3 +1175,15 @@ async def stream_agent(agent_id: str):
                         break
 
     return StreamingResponse(stream(), media_type="application/x-ndjson")
+
+
+from fastapi import FastAPI
+
+app = FastAPI(title="Codex Agent Spawner")
+app.include_router(router)
+
+
+@app.on_event("startup")
+async def startup():
+    asyncio.create_task(spawn_queue_worker())
+    asyncio.create_task(reaper_loop())

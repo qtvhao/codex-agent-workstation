@@ -5,12 +5,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     xauth \
     xvfb \
+    xterm \
     python3 \
     python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-RUN pip3 install --no-cache-dir --break-system-packages fastapi uvicorn pydantic
+RUN pip3 install --no-cache-dir --break-system-packages fastapi uvicorn pydantic httpx
 
 # Install Node.js (LTS)
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
@@ -22,9 +23,10 @@ RUN npm i -g @openai/codex
 
 # Set up X11 resources
 ENV DISPLAY=:0
-COPY spawn_server.py /spawn_server.py
+COPY agents.py /agents.py
+COPY spawn.sh /spawn.sh
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN chmod +x /entrypoint.sh /spawn.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["uvicorn", "spawn_server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "agents:app", "--host", "0.0.0.0", "--port", "8000"]
