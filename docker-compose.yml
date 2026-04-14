@@ -34,6 +34,10 @@ services:
       - novnc
     networks:
       - chrome_net
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp=unconfined
 
 volumes:
   x11socket:

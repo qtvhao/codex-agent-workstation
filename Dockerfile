@@ -8,6 +8,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xterm \
     python3 \
     python3-pip \
+    sudo \
+    git \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -23,6 +26,10 @@ RUN npm i -g @openai/codex
 
 # Set up X11 resources
 ENV DISPLAY=:0
+
+# Create agent user for running spawned agents
+RUN useradd -m agent && echo "agent ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
 COPY agents.py /agents.py
 COPY spawn.sh /spawn.sh
 COPY entrypoint.sh /entrypoint.sh

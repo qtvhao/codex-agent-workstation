@@ -33,7 +33,7 @@ Your role:
 - If the context is insufficient, say exactly what additional information is needed."""
 
 CLAUDE_JSON_PATH = os.path.expanduser("~/.claude.json")
-CLAUDE_PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
+CLAUDE_PROJECTS_DIR = "/home/agent/.claude/projects"
 CHROME_SPAWNER_URL = os.environ.get("CHROME_SPAWNER_URL", "http://host.docker.internal:8100")
 
 REAPER_INTERVAL = 15  # seconds between reaper sweeps
@@ -606,7 +606,7 @@ def _do_spawn(req: SpawnRequest):
 
     proc = subprocess.Popen(
         ["xterm", "-hold", "-title", f"Agent {short_id}",
-         "-e", f"/app/spawn.sh {req.agent_id}"],
+         "-e", f"/spawn.sh {req.agent_id}"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,

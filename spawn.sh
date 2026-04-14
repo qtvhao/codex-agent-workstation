@@ -1,0 +1,92 @@
+#!/bin/bash
+AGENT_ID="$1"
+CONTENT="${AGENT_CONTENT}"
+WORKSPACE="${AGENT_WORKSPACE}"
+
+HEARTBEAT_FILE="/tmp/agent-heartbeat-${AGENT_ID}"
+
+# Debug mode
+if [[ "${DEBUG:-}" == "1" ]]; then
+  set -x
+  DEBUG_LOG="/tmp/spawn-debug-${AGENT_ID}.log"
+  exec 2>"$DEBUG_LOG"
+fi
+
+echo "Agent $AGENT_ID spawned in $WORKSPACE (DEBUG=${DEBUG:-0})"
+cd "$WORKSPACE" || exit 1
+
+# Fix permissions
+sudo chmod -R a+rwX . 2>/dev/null
+
+# Random sleep to avoid IO conflicts
+sleep "$(awk 'BEGIN{srand(); printf "%.3f", rand()*3}')"
+
+# Ensure agent settings disable extended thinking
+mkdir -p .claude
+if [ -f .claude/settings.json ]; then
+  jq '.alwaysThinkingEnabled = false' .claude/settings.json > .claude/settings.json.tmp && mv .claude/settings.json.tmp .claude/settings.json
+else
+  echo '{"alwaysThinkingEnabled":false}' > .claude/settings.json
+fi
+
+# Ensure agent runs in tmux teammateMode
+mkdir -p /home/agent/.claude
+mkdir -p /home/agent/.claude/projects
+if [ -f /home/agent/.claude.json ]; then
+  jq '.teammateMode = "tmux"' /home/agent/.claude.json > /home/agent/.claude.json.tmp && mv .claude/.claude.json.tmp .claude.json
+else
+  echo '{"teammateMode":"tmux"}' > /home/agent/.claude.json
+fi
+
+# Ensure workspace is a git repo
+if [ ! -d ".git" ]; then
+  git init
+fi
+
+# Save prompt to file
+PROMPT_FILE="$WORKSPACE/.agent-prompt-$$"
+printf '%s' "$CONTENT" > "$PROMPT_FILE"
+
+# Runner script in /tmp
+RUNNER="/tmp/agent-run-$$.sh"
+cat > "$RUNNER" << 'ENDRUNNER'
+#!/bin/bash
+WORKSPACE="$1"
+PROMPT_FILE="$2"
+AGENT_ID="$3"
+cd "$WORKSPACE" || exit 1
+CONTENT=$(cat "$PROMPT_FILE")
+rm -f "$PROMPT_FILE"
+exec codex exec --dangerously-bypass-approvals-and-sandbox -- "$CONTENT"
+ENDRUNNER
+chmod +x "$RUNNER"
+
+# Try mount namespace (best-effort)
+NAMESPACE_OK=""
+if sudo -E unshare --mount --propagation unchanged -- bash -c "
+  mkdir -p /home/agent/.claude/teams 2>/dev/null || true
+  TEAMS_DIR=\"/home/agent/team-history/\$(date +%Y%m%d-%H%M%S)\"
+  mkdir -p \"\$TEAMS_DIR\" && chmod 777 \"\$TEAMS_DIR\"
+  mount --bind \"\$TEAMS_DIR\" /home/agent/.claude/teams 2>/dev/null || true
+  exec sudo -E -u agent bash \"$RUNNER\" \"$WORKSPACE\" \"$PROMPT_FILE\" \"$AGENT_ID\"
+" 2>/dev/null; then
+  NAMESPACE_OK=1
+fi
+
+if [ -z "$NAMESPACE_OK" ]; then
+  # Fallback: run directly without namespace isolation
+  echo "[DEBUG] Running agent without namespace isolation" >&2
+  sudo -E -u agent bash "$RUNNER" "$WORKSPACE" "$PROMPT_FILE" "$AGENT_ID" &
+fi
+
+AGENT_PID=$!
+echo "[DEBUG] Agent $AGENT_ID heartbeat loop starting (PID=$AGENT_PID)..." >&2
+
+# Heartbeat loop
+while kill -0 "$AGENT_PID" 2>/dev/null; do
+  touch "$HEARTBEAT_FILE"
+  sleep 30
+done
+echo "[DEBUG] Agent $AGENT_ID process $AGENT_PID died, exit code: $?" >&2
+rm -f "$HEARTBEAT_FILE"
+wait "$AGENT_PID" 2>/dev/null
