@@ -1,11 +1,11 @@
 #!/bin/bash
 AGENT_ID="$1"
-CONTENT="${AGENT_CONTENT}"
-WORKSPACE="${AGENT_WORKSPACE}"
+CONTENT="$AGENT_CONTENT"
+WORKSPACE="$AGENT_WORKSPACE"
 
 HEARTBEAT_FILE="/tmp/agent-heartbeat-${AGENT_ID}"
 
-# Debug mode
+# Debug mode: set DEBUG=1 env var to enable verbose logging
 if [[ "${DEBUG:-}" == "1" ]]; then
   set -x
   DEBUG_LOG="/tmp/spawn-debug-${AGENT_ID}.log"
@@ -15,10 +15,10 @@ fi
 echo "Agent $AGENT_ID spawned in $WORKSPACE (DEBUG=${DEBUG:-0})"
 cd "$WORKSPACE" || exit 1
 
-# Fix permissions
+# Fix permissions so this agent can write everywhere in the workspace
 sudo chmod -R a+rwX . 2>/dev/null
 
-# Random sleep to avoid IO conflicts
+# Random sleep 0-3000ms to avoid IO conflicts when multiple agents spawn concurrently
 sleep "$(awk 'BEGIN{srand(); printf "%.3f", rand()*3}')"
 
 # Ensure agent settings disable extended thinking
@@ -31,62 +31,66 @@ fi
 
 # Ensure agent runs in tmux teammateMode
 mkdir -p /home/agent/.claude
-mkdir -p /home/agent/.claude/projects
 if [ -f /home/agent/.claude.json ]; then
   jq '.teammateMode = "tmux"' /home/agent/.claude.json > /home/agent/.claude.json.tmp && mv /home/agent/.claude.json.tmp /home/agent/.claude.json
 else
   echo '{"teammateMode":"tmux"}' > /home/agent/.claude.json
 fi
 
-# Ensure workspace is a git repo
+# Ensure workspace is a git repo to bypass trust prompt
 if [ ! -d ".git" ]; then
   git init
 fi
 
-# Save prompt to file (don't use $$ in filename - it's the parent shell's PID)
-# Runner script in /tmp
-RUNNER="/tmp/agent-run-${AGENT_ID}.sh"
-cat > "$RUNNER" << ENDRUNNER
+# --- Workspace isolation via mount namespace ---
+# Save prompt to file to avoid quoting issues across namespace boundary
+PROMPT_FILE="$WORKSPACE/.agent-prompt-$$"
+printf '%s' "$CONTENT" > "$PROMPT_FILE"
+
+# Stash workspace via bind mount before overlaying /workspaces with tmpfs
+STASH=$(mktemp -d /tmp/ws-stash-XXXXXX)
+sudo mount --bind "$WORKSPACE" "$STASH"
+
+# Write runner script (executed inside the namespace as agent user)
+RUNNER=$(mktemp /tmp/agent-run-XXXXXX.sh)
+cat > "$RUNNER" <<RUNNER_EOF
 #!/bin/bash
-WORKSPACE="\$1"
-AGENT_ID="\$2"
-cd "\$WORKSPACE" || exit 1
-export HOME="/home/agent"
-CONTENT="\${AGENT_CONTENT:-}"
-if [ -z "\$CONTENT" ]; then
-  echo "ERROR: AGENT_CONTENT is empty" >&2
-  exit 1
-fi
-exec codex --dangerously-bypass-approvals-and-sandbox --model gpt-5.2 "\$CONTENT"
-ENDRUNNER
+cd "$WORKSPACE" || exit 1
+CONTENT=\$(cat "$PROMPT_FILE")
+rm -f "$PROMPT_FILE"
+rm -f "$RUNNER"
+exec codex resume --dangerously-bypass-approvals-and-sandbox --model gpt-5.2 "$AGENT_ID" "\$CONTENT"
+RUNNER_EOF
 chmod +x "$RUNNER"
 
-# Try mount namespace (best-effort)
-AGENT_PID=""
-sudo -E unshare --mount --propagation unchanged -- bash -c "
-  mkdir -p /home/agent/.claude/teams 2>/dev/null || true
-  TEAMS_DIR=\"/home/agent/team-history/\$(date +%Y%m%d-%H%M%S)\"
-  mkdir -p \"\$TEAMS_DIR\" && chmod 777 \"\$TEAMS_DIR\"
-  mount --bind \"\$TEAMS_DIR\" /home/agent/.claude/teams 2>/dev/null || true
-  exec sudo -E -u agent bash \"$RUNNER\" \"$WORKSPACE\" \"$AGENT_ID\"
-" 2>/dev/null &
+# Enter mount namespace: hide /workspaces and /app, expose only this agent's workspace
+echo "[DEBUG] Creating mount namespace for agent $AGENT_ID..." >&2
+sudo -E unshare --mount --propagation unchanged -- bash -c '
+  mount -t tmpfs tmpfs /workspaces
+  mount -t tmpfs tmpfs /workspace
+  mount -t tmpfs tmpfs /app
+  chmod 777 /home/agent/.claude/teams 2>/dev/null || true
+  TEAMS_DIR="/home/agent/team-history/$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "/home/agent/team-history"
+  mount --bind "/home/agent/team-history" "/home/agent/team-history"
+  mkdir -p "$TEAMS_DIR"
+  chmod 777 "$TEAMS_DIR"
+  mount --bind "$TEAMS_DIR" /home/agent/.claude/teams
+  mkdir -p "'"$WORKSPACE"'"
+  mount --bind "'"$STASH"'" "'"$WORKSPACE"'"
+  umount -l "'"$STASH"'"
+  rmdir "'"$STASH"'"
+  exec sudo -E -u agent bash "'"$RUNNER"'"
+' &
 AGENT_PID=$!
+echo "[DEBUG] Agent $AGENT_ID spawned with PID $AGENT_PID" >&2
 
-# If unshare fails immediately, fall back to running directly.
-sleep 0.2
-if ! kill -0 "$AGENT_PID" 2>/dev/null; then
-  echo "[DEBUG] Namespace isolation failed; running agent without it" >&2
-  sudo -E -u agent bash "$RUNNER" "$WORKSPACE" "$AGENT_ID" &
-  AGENT_PID=$!
-fi
-
-echo "[DEBUG] Agent $AGENT_ID heartbeat loop starting (PID=$AGENT_PID)..." >&2
-
-# Heartbeat loop
+# Heartbeat loop: touch file every 30s while agent process is alive
+echo "[DEBUG] Agent $AGENT_ID heartbeat loop starting..." >&2
 while kill -0 "$AGENT_PID" 2>/dev/null; do
   touch "$HEARTBEAT_FILE"
   sleep 30
 done
 echo "[DEBUG] Agent $AGENT_ID process $AGENT_PID died, exit code: $?" >&2
 rm -f "$HEARTBEAT_FILE"
-wait "$AGENT_PID" 2>/dev/null
+wait "$AGENT_PID"
