@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# Edit the Claude Code configuration file `~/.claude/settings.json`
+# Add or modify the env fields ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN
+# Note to replace `your_zai_api_key` with the API Key you obtained in the previous step
+
+export ANTHROPIC_BASE_URL="https://api.z.ai/api/anthropic"
+export ANTHROPIC_AUTH_TOKEN="dc88e92d93d34a86b94914909cdfc224.eXh0UlJ0hFui3qAD"
+export API_TIMEOUT_MS="3000000"
+export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+export ANTHROPIC_MODEL="glm-5.1"
+export ANTHROPIC_SMALL_FAST_MODEL="$ANTHROPIC_MODEL"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="$ANTHROPIC_MODEL"
+export ANTHROPIC_DEFAULT_OPUS_MODEL="$ANTHROPIC_MODEL"
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="$ANTHROPIC_MODEL"
+
+# export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
+
+nohup bash -c 'cd webui && npm run dev -- --host' > /dev/null 2>&1 &
+VITE_PID=$!
+
+claude --dangerously-skip-permissions "$1"
+
+kill $VITE_PID 2>/dev/null

@@ -1,0 +1,40 @@
+services:
+  novnc:
+    image: ghcr.io/qtvhao/docker-novnc:master
+    container_name: novnc
+    restart: always
+    environment:
+      VNC_PASSWORD: "DNGfRiZ815CnKtoKXKSzX76zMF24x3bY"
+      DISPLAY_WIDTH: 1440
+      DISPLAY_HEIGHT: 750
+    ports:
+      - "6081:8080"
+    volumes:
+      - x11socket:/tmp/.X11-unix
+    networks:
+      - chrome_net
+
+  codex-agent:
+    build: .
+    container_name: codex-agent
+    environment:
+      - DISPLAY=:0
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./workspace:/workspace
+      - x11socket:/tmp/.X11-unix
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    depends_on:
+      - novnc
+    networks:
+      - chrome_net
+
+volumes:
+  x11socket:
+
+networks:
+  chrome_net:
