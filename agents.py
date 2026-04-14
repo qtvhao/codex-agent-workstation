@@ -605,8 +605,7 @@ def _do_spawn(req: SpawnRequest):
         logger.debug("[TeammateInit] agent_id=%s registering as teammate in team %s", short_id, team_context.get('team_name', 'N/A'))
 
     proc = subprocess.Popen(
-        ["xterm", "-hold", "-title", f"Agent {short_id}",
-         "-e", f"/spawn.sh {req.agent_id}"],
+        ["xterm", "-title", f"Agent {short_id}", "-e", "/spawn.sh", req.agent_id],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,

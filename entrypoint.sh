@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+if ! id -u agent >/dev/null 2>&1; then
+    useradd -m agent
+    echo "agent ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+fi
+
 # Wait for the novnc X socket to become available
 SOCKET=/tmp/.X11-unix/X0
 TIMEOUT=30

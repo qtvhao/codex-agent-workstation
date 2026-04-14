@@ -3,6 +3,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
+    file \
     xauth \
     xvfb \
     xterm \
@@ -27,8 +28,9 @@ RUN npm i -g @openai/codex
 # Set up X11 resources
 ENV DISPLAY=:0
 
-# Create agent user for running spawned agents
-RUN useradd -m agent && echo "agent ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+# Create agent user for running spawned agents (idempotent for rebuilds)
+RUN id -u agent >/dev/null 2>&1 || useradd -m -s /bin/bash agent \
+    && grep -qE '^agent ALL=\(ALL\) NOPASSWD: ALL$' /etc/sudoers || echo "agent ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
 COPY agents.py /agents.py
 COPY spawn.sh /spawn.sh

@@ -33,7 +33,7 @@ fi
 mkdir -p /home/agent/.claude
 mkdir -p /home/agent/.claude/projects
 if [ -f /home/agent/.claude.json ]; then
-  jq '.teammateMode = "tmux"' /home/agent/.claude.json > /home/agent/.claude.json.tmp && mv .claude/.claude.json.tmp .claude.json
+  jq '.teammateMode = "tmux"' /home/agent/.claude.json > /home/agent/.claude.json.tmp && mv /home/agent/.claude.json.tmp /home/agent/.claude.json
 else
   echo '{"teammateMode":"tmux"}' > /home/agent/.claude.json
 fi
@@ -43,21 +43,21 @@ if [ ! -d ".git" ]; then
   git init
 fi
 
-# Save prompt to file
-PROMPT_FILE="$WORKSPACE/.agent-prompt-$$"
-printf '%s' "$CONTENT" > "$PROMPT_FILE"
-
+# Save prompt to file (don't use $$ in filename - it's the parent shell's PID)
 # Runner script in /tmp
-RUNNER="/tmp/agent-run-$$.sh"
-cat > "$RUNNER" << 'ENDRUNNER'
+RUNNER="/tmp/agent-run-${AGENT_ID}.sh"
+cat > "$RUNNER" << ENDRUNNER
 #!/bin/bash
-WORKSPACE="$1"
-PROMPT_FILE="$2"
-AGENT_ID="$3"
-cd "$WORKSPACE" || exit 1
-CONTENT=$(cat "$PROMPT_FILE")
-rm -f "$PROMPT_FILE"
-exec codex exec --dangerously-bypass-approvals-and-sandbox -- "$CONTENT"
+WORKSPACE="\$1"
+AGENT_ID="\$2"
+cd "\$WORKSPACE" || exit 1
+export HOME="/home/agent"
+CONTENT="\${AGENT_CONTENT:-}"
+if [ -z "\$CONTENT" ]; then
+  echo "ERROR: AGENT_CONTENT is empty" >&2
+  exit 1
+fi
+exec codex --dangerously-bypass-approvals-and-sandbox --model gpt-5.2 "\$CONTENT"
 ENDRUNNER
 chmod +x "$RUNNER"
 
@@ -68,7 +68,7 @@ if sudo -E unshare --mount --propagation unchanged -- bash -c "
   TEAMS_DIR=\"/home/agent/team-history/\$(date +%Y%m%d-%H%M%S)\"
   mkdir -p \"\$TEAMS_DIR\" && chmod 777 \"\$TEAMS_DIR\"
   mount --bind \"\$TEAMS_DIR\" /home/agent/.claude/teams 2>/dev/null || true
-  exec sudo -E -u agent bash \"$RUNNER\" \"$WORKSPACE\" \"$PROMPT_FILE\" \"$AGENT_ID\"
+  exec sudo -E -u agent bash \"$RUNNER\" \"$WORKSPACE\" \"$AGENT_ID\"
 " 2>/dev/null; then
   NAMESPACE_OK=1
 fi
@@ -76,7 +76,7 @@ fi
 if [ -z "$NAMESPACE_OK" ]; then
   # Fallback: run directly without namespace isolation
   echo "[DEBUG] Running agent without namespace isolation" >&2
-  sudo -E -u agent bash "$RUNNER" "$WORKSPACE" "$PROMPT_FILE" "$AGENT_ID" &
+  sudo -E -u agent bash "$RUNNER" "$WORKSPACE" "$AGENT_ID" &
 fi
 
 AGENT_PID=$!
