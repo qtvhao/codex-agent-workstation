@@ -26,6 +26,7 @@ services:
     volumes:
       - ./workspace:/workspace
       - ./workspace:/workspaces
+      - ./codex-agent-home:/home/agent
       - x11socket:/tmp/.X11-unix
     working_dir: /workspace
     stdin_open: true

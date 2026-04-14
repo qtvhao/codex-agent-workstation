@@ -1,0 +1,7 @@
+.npm-cache/
+__pycache__/
+*.pyc
+
+# Local runtime state (mounted into containers)
+codex-agent-home/
+workspace/

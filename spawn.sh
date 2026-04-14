@@ -62,24 +62,24 @@ ENDRUNNER
 chmod +x "$RUNNER"
 
 # Try mount namespace (best-effort)
-NAMESPACE_OK=""
-if sudo -E unshare --mount --propagation unchanged -- bash -c "
+AGENT_PID=""
+sudo -E unshare --mount --propagation unchanged -- bash -c "
   mkdir -p /home/agent/.claude/teams 2>/dev/null || true
   TEAMS_DIR=\"/home/agent/team-history/\$(date +%Y%m%d-%H%M%S)\"
   mkdir -p \"\$TEAMS_DIR\" && chmod 777 \"\$TEAMS_DIR\"
   mount --bind \"\$TEAMS_DIR\" /home/agent/.claude/teams 2>/dev/null || true
   exec sudo -E -u agent bash \"$RUNNER\" \"$WORKSPACE\" \"$AGENT_ID\"
-" 2>/dev/null; then
-  NAMESPACE_OK=1
-fi
-
-if [ -z "$NAMESPACE_OK" ]; then
-  # Fallback: run directly without namespace isolation
-  echo "[DEBUG] Running agent without namespace isolation" >&2
-  sudo -E -u agent bash "$RUNNER" "$WORKSPACE" "$AGENT_ID" &
-fi
-
+" 2>/dev/null &
 AGENT_PID=$!
+
+# If unshare fails immediately, fall back to running directly.
+sleep 0.2
+if ! kill -0 "$AGENT_PID" 2>/dev/null; then
+  echo "[DEBUG] Namespace isolation failed; running agent without it" >&2
+  sudo -E -u agent bash "$RUNNER" "$WORKSPACE" "$AGENT_ID" &
+  AGENT_PID=$!
+fi
+
 echo "[DEBUG] Agent $AGENT_ID heartbeat loop starting (PID=$AGENT_PID)..." >&2
 
 # Heartbeat loop
